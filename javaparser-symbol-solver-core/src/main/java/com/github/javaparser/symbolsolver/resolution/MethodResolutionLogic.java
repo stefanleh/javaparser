@@ -368,8 +368,33 @@ public class MethodResolutionLogic {
         return findMostApplicable(methods, name, argumentsTypes, typeSolver, true);
     }
 
+    private static boolean allParamsFit(ResolvedMethodDeclaration rmd, List<ResolvedType> argumentsTypes) {
+        
+        int argumentsTypesSize = argumentsTypes.size();
+        if (argumentsTypesSize == 0)
+            return true;
+            
+        if (rmd.hasVariadicParameter())
+            argumentsTypesSize = argumentsTypesSize - 1;
+        
+        if (rmd.getNumberOfParams() < argumentsTypesSize)
+            return false;
+
+        boolean oneIsNotAssignable = false;
+        for (int i = 0; i < argumentsTypesSize; i++) {
+            if(!rmd.getParam(i).getType().isAssignableBy(argumentsTypes.get(i)))
+                oneIsNotAssignable = true;
+        }
+        
+        return !oneIsNotAssignable;
+    }
+    
     public static SymbolReference<ResolvedMethodDeclaration> findMostApplicable(List<ResolvedMethodDeclaration> methods,
                                                                                 String name, List<ResolvedType> argumentsTypes, TypeSolver typeSolver, boolean wildcardTolerance) {
+        
+        if (methods.isEmpty()) {
+            return SymbolReference.unsolved(ResolvedMethodDeclaration.class);
+        }
         
         List<ResolvedMethodDeclaration> methodsWithMatchingName = methods.stream()
                 .filter(m -> m.getName().equals(name))
@@ -381,6 +406,22 @@ public class MethodResolutionLogic {
                 // Checks if ResolvedMethodDeclaration is applicable to argumentsTypes.
                 .filter((m) -> isApplicable(m, name, argumentsTypes, typeSolver, wildcardTolerance))
                 .collect(Collectors.toList());
+
+        // hack (uns interessiert eh nur die klasse in der die methode implementiert ist)
+        if (applicableMethods.isEmpty()) {
+            System.out.println("[HACK] Es wurde keine applicable Methode für " + name + " gefunden.");
+            Optional<ResolvedMethodDeclaration> met =  methodsWithMatchingName.stream()
+                    .filter(distinctByKey(ResolvedMethodDeclaration::getQualifiedSignature)) 
+                    .filter(m -> allParamsFit(m, argumentsTypes))
+                    .findFirst();
+            
+            if (met.isPresent() && met.get().getPackageName().contains(".app.")) {
+                System.out.println("[HACK] Deshalb nutzen wir einfach die erste, mit passenden Parametern, gefundene:  " + met.get().getQualifiedSignature());
+                return SymbolReference.solved(met.get());
+            }
+        }
+        
+        // hack ende
         
         if (applicableMethods.isEmpty()) {
             return SymbolReference.unsolved(ResolvedMethodDeclaration.class);
